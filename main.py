@@ -4,33 +4,48 @@ import requests
 from tkinter import Tk, filedialog
 from urllib.parse import urlparse
 from os.path import splitext
+import mimetypes
 
 # Function to download images and update CSV
 def download_image(image_url, image_name, save_folder, row):
     # Parse the URL to get the original file extension
-    parsed_url = urlparse(image_url)
-    original_extension = splitext(parsed_url.path)[1]  # Get file extension (e.g., .jpg)
+    #parsed_url = urlparse(image_url)
+    #original_extension = splitext(parsed_url.path)[1]  # Get file extension (e.g., .jpg)
 
     # Ensure the file extension is lower case
-    original_extension = original_extension.lower()
-
-    # Remove any file extension from image_name if it exists
-    image_name_without_ext, _ = splitext(image_name)
-
-    # Build the correct file path using the provided name from the second column without any extension
-    file_path = os.path.join(save_folder, image_name_without_ext + original_extension)
+    #original_extension = original_extension.lower()
 
     try:
         # Send a GET request to download the image
         response = requests.get(image_url, stream=True)
         if response.status_code == 200:
+            content_type = response.headers.get('Content-Type')
+            if content_type:
+                # Use mimetypes to determine the file extension
+                file_extension = mimetypes.guess_extension(content_type)
+            else:
+                # Fallback if no Content-Type header is present
+                file_extension = ".jpg"
+
+            # Remove any file extension from image_name if it exists
+            image_name_without_ext, _ = splitext(image_name)
+
+            # If the image URL doesn't have a filename, generate one
+            if not image_name_without_ext:
+                parsed_url = urlparse(image_url)
+                # Use the last part of the URL path or a fallback name
+                image_name_without_ext = parsed_url.path.strip('/').split('/')[-1] or "image"
+
+            # Build the full path for saving the image
+            file_path = os.path.join(save_folder, image_name_without_ext + file_extension)
+
             with open(file_path, 'wb') as f:
                 for chunk in response.iter_content(1024):
                     f.write(chunk)
-            print(f"Downloaded {image_name_without_ext}{original_extension}")
+            print(f"Downloaded {image_name_without_ext}{file_extension}")
 
             # Update the row with the downloaded file name (including correct extension)
-            row.append(image_name_without_ext + original_extension)
+            row.append(image_name_without_ext + file_extension)
         else:
             error_msg = f"Failed to download: Status code {response.status_code}"
             print(error_msg)
@@ -68,14 +83,15 @@ def process_csv(file_path):
                 url = row[0]  # First column is the URL
                 image_name = row[1]  # Second column is the file name
 
-                # If the URL ends with one of the supported extensions, process it
-                if url.lower().endswith(image_extensions):
+                # If the URL looks like it doesn't have an extension or name, handle it
+                if not any(url.lower().endswith(ext) for ext in image_extensions):
                     # Call download_image and get the updated row
                     updated_row = download_image(url, image_name, save_folder, row)
                     updated_rows.append(updated_row)
                 else:
-                    # Append the original row if no valid image URL is found
-                    updated_rows.append(row)
+                    # If it's a regular image URL, also process it
+                    updated_row = download_image(url, image_name, save_folder, row)
+                    updated_rows.append(updated_row)
             else:
                 # If the row doesn't have enough columns, leave it unchanged
                 updated_rows.append(row)
